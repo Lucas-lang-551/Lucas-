@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.command.argument.BlockPosArgumentType;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.MovementType;
 import net.minecraft.entity.SpawnReason;
@@ -26,6 +27,9 @@ import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.Map;
 import java.util.UUID;
 
@@ -33,6 +37,7 @@ public class RocketCraft implements ModInitializer {
     static final String TAG = "rc_ball";
     final Map<UUID, Vec3d> vel = new HashMap<>();
     final Map<UUID, Vec3d> lastPos = new HashMap<>();
+    final Map<UUID, UUID> disp = new HashMap<>();
     final Box[] goals = new Box[2];
     final int[] score = new int[2];
     Vec3d center = null;
@@ -112,13 +117,21 @@ public class RocketCraft implements ModInitializer {
         b.setSilent(true);
         b.setPersistent();
         b.addCommandTag(TAG);
-        b.setCustomName(Text.literal("Bola"));
+        b.setInvisible(true);
         b.refreshPositionAndAngles(pos.x, pos.y, pos.z, 0, 0);
         w.spawnEntity(b);
         vel.put(b.getUuid(), Vec3d.ZERO);
+        String cmd = String.format(Locale.ROOT, "summon minecraft:item_display %f %f %f {Tags:[\"rc_disp\",\"rc_new\"],teleport_duration:2,item:{id:\"minecraft:slime_ball\",count:1,components:{\"minecraft:item_model\":\"rocketcraft:ball\"}},transformation:{left_rotation:[0f,0f,0f,1f],right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[2f,2f,2f]}}", pos.x, pos.y + 1.0, pos.z);
+        w.getServer().getCommandManager().executeWithPrefix(w.getServer().getCommandSource().withWorld(w).withSilent(), cmd);
+        for (var e : w.getEntitiesByType(EntityType.ITEM_DISPLAY, x -> x.getCommandTags().contains("rc_new"))) {
+            e.removeCommandTag("rc_new");
+            disp.put(b.getUuid(), e.getUuid());
+            break;
+        }
     }
 
     void tick(ServerWorld w) {
+        Set<UUID> used = new HashSet<>();
         for (SlimeEntity b : w.getEntitiesByType(EntityType.SLIME, e -> e.getCommandTags().contains(TAG))) {
             Vec3d v = vel.getOrDefault(b.getUuid(), Vec3d.ZERO);
 
@@ -153,7 +166,19 @@ public class RocketCraft implements ModInitializer {
                     vel.put(b.getUuid(), Vec3d.ZERO);
                 }
             }
+
+            UUID du = disp.get(b.getUuid());
+            if (du != null) {
+                Entity de = w.getEntity(du);
+                if (de != null) {
+                    de.requestTeleport(b.getX(), b.getY() + b.getHeight() / 2.0, b.getZ());
+                    used.add(du);
+                }
+            }
+        }
+        for (var e : w.getEntitiesByType(EntityType.ITEM_DISPLAY, x -> x.getCommandTags().contains("rc_disp") && !x.getCommandTags().contains("rc_new") && !used.contains(x.getUuid()))) {
+            e.discard();
         }
         for (PlayerEntity p : w.getPlayers()) lastPos.put(p.getUuid(), p.getPos());
     }
-                }
+}
